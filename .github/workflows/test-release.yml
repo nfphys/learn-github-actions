@@ -1,0 +1,76 @@
+on:
+  push:
+    tags:
+      - 'v*'
+
+name: Test Create Release
+
+jobs:
+  setup-release:
+    name: Setup release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      - name: Get url to upload to release from output
+        env:
+          url: ${{ steps.create_release.outputs.upload_url }}
+        run: |
+          mkdir artifact
+          echo $url > artifact/url.txt
+      - name: Upload artifact to share url with other jobs
+        uses: actions/upload-artifact@v2
+        with:
+          name: artifact
+          path: artifact/url.txt
+
+  release:
+    name: Release
+    needs: setup-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v2
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '12'
+      - name: Print node version
+        run: node -v >> node-versions.txt
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+      - name: Print node version
+        run: node -v >> node-versions.txt
+
+      - name: Compress node-versions.txt
+        run: zip -r assets.zip node-versions.txt
+
+      - name: Download artifact to get url to upload files
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: artifact
+      - name: Get url to upload to release from artifact
+        id: get_url
+        run: |
+          url=$(cat artifact/url.txt)
+          echo "##[set-output name=upload_url;]$url"
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.get_url.outputs.upload_url }}
+          asset_path: assets.zip
+          asset_name: assets.zip
+          asset_content_type: application/zip
